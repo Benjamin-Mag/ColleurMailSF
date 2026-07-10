@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Coller Mail Salesforce",
+  "version": "1.0",
+  "description": "Colle automatiquement le mail généré dans le compositeur Salesforce",
+  "permissions": ["activeTab", "scripting", "clipboardRead", "clipboardWrite", "tabs", "storage"],
+  "host_permissions": ["*://*.salesforce.com/*", "*://*.force.com/*"],
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+V"
+      },
+      "description": "Coller le mail dans Salesforce"
+    }
+  },
+  "web_accessible_resources": [{"resources": ["icon16.png", "icon48.png", "icon128.png"], "matches": ["*://*.salesforce.com/*", "*://*.force.com/*"]}],
+  "content_scripts": [
+    {
+      "matches": ["*://*.salesforce.com/*", "*://*.force.com/*"],
+      "js": ["content.js"],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ]
+}

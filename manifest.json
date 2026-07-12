@@ -26,13 +26,5 @@
       "description": "Coller le mail dans Salesforce"
     }
   },
-  "web_accessible_resources": [{"resources": ["icon16.png", "icon48.png", "icon128.png"], "matches": ["*://*.salesforce.com/*", "*://*.force.com/*"]}],
-  "content_scripts": [
-    {
-      "matches": ["*://*.salesforce.com/*", "*://*.force.com/*"],
-      "js": ["content.js"],
-      "all_frames": true,
-      "run_at": "document_idle"
-    }
-  ]
+  "web_accessible_resources": [{"resources": ["icon16.png", "icon48.png", "icon128.png"], "matches": ["*://*.salesforce.com/*", "*://*.force.com/*"]}]
 }

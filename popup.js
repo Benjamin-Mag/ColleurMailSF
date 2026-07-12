@@ -165,21 +165,20 @@ async function copyInfosSF() {
 }
 
 // ============================================================
-// INJECTION DES BOUTONS FLOTTANTS DANS LA PAGE SF
+// INJECTION DU PANNEAU FLOTTANT DANS LA PAGE SF
 // ============================================================
 async function injecterBoutonSF(tab) {
   await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: function(logoUrl, footerHtml) {
-      var existing1 = document.getElementById('sf-copier-btn');
-      var existing2 = document.getElementById('sf-coller-btn');
-      var existingToast = document.getElementById('sf-copier-toast');
-      if (existing1 || existing2) {
-        if (existing1) existing1.remove();
-        if (existing2) existing2.remove();
-        if (existingToast) existingToast.remove();
+      var existingPanel = document.getElementById('sf-mail-panel');
+      if (existingPanel) {
+        existingPanel.remove();
         return 'removed';
       }
+
+      var PANEL_W = 230;
+      var STORAGE_KEY = 'sfMailPanelState_v1';
 
       function getSR(el) { try { return chrome.dom.openOrClosedShadowRoot(el); } catch(e) { return el.shadowRoot; } }
       function dqAll(sel, root) {
@@ -196,10 +195,103 @@ async function injecterBoutonSF(tab) {
         return null;
       }
       function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
-      function showToast(msg, ok) {
-        var t = document.getElementById('sf-copier-toast'); if (!t) return;
-        t.textContent = msg; t.style.background = ok ? '#1B4F9B' : '#c0392b'; t.style.opacity = '1';
-        clearTimeout(t._h); t._h = setTimeout(function() { t.style.opacity = '0'; }, 3000);
+
+      function loadState() {
+        try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch(e) { return {}; }
+      }
+      function saveState(state) {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
+      }
+      function clamp(top, left) {
+        var maxLeft = Math.max(0, window.innerWidth - PANEL_W);
+        var maxTop = Math.max(0, window.innerHeight - 40);
+        return { top: Math.min(Math.max(top, 0), maxTop), left: Math.min(Math.max(left, 0), maxLeft) };
+      }
+
+      var saved = loadState();
+      var pos = clamp(
+        typeof saved.top === 'number' ? saved.top : 80,
+        typeof saved.left === 'number' ? saved.left : (window.innerWidth - PANEL_W - 20)
+      );
+
+      var panel = document.createElement('div');
+      panel.id = 'sf-mail-panel';
+      panel.style.cssText =
+        'position:fixed;top:' + pos.top + 'px;left:' + pos.left + 'px;width:' + PANEL_W + 'px;' +
+        'z-index:2147483647;background:#fff;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);' +
+        'font-family:Arial,Helvetica,sans-serif;overflow:hidden;user-select:none;';
+
+      var header = document.createElement('div');
+      header.style.cssText =
+        'display:flex;align-items:center;gap:6px;background:#1B4F9B;color:#fff;padding:8px 10px;' +
+        'cursor:move;font-size:13px;font-weight:600;';
+      header.innerHTML =
+        '<span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">✉ ColleurMailSF</span>' +
+        '<button id="sf-panel-min" title="Réduire" style="width:22px;height:22px;border:none;border-radius:5px;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:14px;line-height:1;">–</button>' +
+        '<button id="sf-panel-close" title="Fermer" style="width:22px;height:22px;border:none;border-radius:5px;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:14px;line-height:1;">×</button>';
+      panel.appendChild(header);
+
+      var body = document.createElement('div');
+      body.id = 'sf-panel-body';
+      body.style.cssText = 'padding:10px;display:' + (saved.minimized ? 'none' : 'block') + ';';
+      body.innerHTML =
+        '<button id="sf-copier-btn" style="width:100%;padding:9px;margin-bottom:8px;background:#fff;color:#1B4F9B;border:2px solid #1B4F9B;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;user-select:none;">📋 Copier les infos client</button>' +
+        '<button id="sf-coller-btn" style="width:100%;padding:9px;background:#1B4F9B;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;user-select:none;">📨 Coller le mail</button>' +
+        '<p id="sf-panel-status" style="margin:8px 0 0;font-size:11px;color:#555;text-align:center;min-height:14px;word-break:break-word;"></p>';
+      panel.appendChild(body);
+
+      document.body.appendChild(panel);
+
+      // --- Drag (écouteurs globaux posés une seule fois, réutilisés à chaque réouverture) ---
+      var G = window.__sfMailPanelDrag || (window.__sfMailPanelDrag = { dragging: false });
+      G.panel = panel; G.clamp = clamp;
+
+      header.addEventListener('mousedown', function(e) {
+        if (e.target.closest('button')) return;
+        G.dragging = true;
+        G.dragStartX = e.clientX; G.dragStartY = e.clientY;
+        G.startLeft = panel.offsetLeft; G.startTop = panel.offsetTop;
+        e.preventDefault();
+      });
+
+      if (!window.__sfMailPanelListenersAttached) {
+        window.__sfMailPanelListenersAttached = true;
+        document.addEventListener('mousemove', function(e) {
+          if (!G.dragging || !G.panel || !G.panel.isConnected) return;
+          var next = G.clamp(G.startTop + (e.clientY - G.dragStartY), G.startLeft + (e.clientX - G.dragStartX));
+          G.panel.style.top = next.top + 'px';
+          G.panel.style.left = next.left + 'px';
+        });
+        document.addEventListener('mouseup', function() {
+          if (!G.dragging || !G.panel) return;
+          G.dragging = false;
+          try {
+            var s = JSON.parse(localStorage.getItem('sfMailPanelState_v1')) || {};
+            s.top = G.panel.offsetTop; s.left = G.panel.offsetLeft;
+            localStorage.setItem('sfMailPanelState_v1', JSON.stringify(s));
+          } catch(e) {}
+        });
+        window.addEventListener('resize', function() {
+          if (!G.panel || !G.panel.isConnected) return;
+          var next = G.clamp(G.panel.offsetTop, G.panel.offsetLeft);
+          G.panel.style.top = next.top + 'px';
+          G.panel.style.left = next.left + 'px';
+        });
+      }
+
+      // --- Minimize / Close ---
+      document.getElementById('sf-panel-min').addEventListener('click', function() {
+        var isHidden = body.style.display === 'none';
+        body.style.display = isHidden ? 'block' : 'none';
+        var s = loadState(); s.minimized = !isHidden; saveState(s);
+      });
+      document.getElementById('sf-panel-close').addEventListener('click', function() {
+        panel.remove();
+      });
+
+      function showStatus(msg, ok) {
+        var st = document.getElementById('sf-panel-status');
+        if (st) { st.textContent = msg; st.style.color = ok ? '#1B4F9B' : '#c0392b'; }
       }
 
       async function copierInfos() {
@@ -253,7 +345,7 @@ async function injecterBoutonSF(tab) {
             }
           }
           await navigator.clipboard.writeText(JSON.stringify({ patient: patient, partenaire: partenaire, adresse: adresse }));
-          showToast('' + [patient, partenaire].filter(Boolean).join(' / '), true);
+          showStatus('' + [patient, partenaire].filter(Boolean).join(' / '), true);
           await sleep(300);
           var icons = dqAll('lightning-icon[data-tab-value]');
           for (var ei = 0; ei < icons.length; ei++) {
@@ -265,8 +357,8 @@ async function injecterBoutonSF(tab) {
               break;
             }
           }
-        } catch(e) { showToast('Erreur : ' + e.message, false); }
-        finally { if (btn) { btn.textContent = '📋'; btn.disabled = false; } }
+        } catch(e) { showStatus('Erreur : ' + e.message, false); }
+        finally { if (btn) { btn.textContent = '📋 Copier les infos client'; btn.disabled = false; } }
       }
 
       async function collerMail() {
@@ -274,10 +366,10 @@ async function injecterBoutonSF(tab) {
         if (btn2) { btn2.textContent = '⏳'; btn2.disabled = true; }
         try {
           var text = await navigator.clipboard.readText();
-          if (!text) { showToast('Presse-papier vide', false); return; }
+          if (!text) { showStatus('Presse-papier vide', false); return; }
           var ls = text.split('\n'), subject = ls[0], body = ls.slice(1).join('\n').replace(/^\n/, '');
           var ed = dq('.ql-editor');
-          if (!ed) { showToast('Éditeur non trouvé', false); return; }
+          if (!ed) { showStatus('Éditeur non trouvé', false); return; }
           var si = dq('input[placeholder="L\'objet"]');
           if (si) { si.focus(); si.value = subject; si.dispatchEvent(new Event('input', { bubbles: true })); si.dispatchEvent(new Event('change', { bubbles: true })); }
           var wrap = '<span style="font-family:Arial,Helvetica,sans-serif;"><span style="font-size:14px;">';
@@ -288,28 +380,13 @@ async function injecterBoutonSF(tab) {
           ed.focus();
           nativeSet.call(ed, logoHtml + bodyHtml + footerHtml);
           ed.dispatchEvent(new Event('input', { bubbles: true }));
-          showToast('Mail collé !', true);
-        } catch(e) { showToast('Erreur : ' + e.message, false); }
-        finally { if (btn2) { btn2.textContent = '📨'; btn2.disabled = false; } }
+          showStatus('Mail collé !', true);
+        } catch(e) { showStatus('Erreur : ' + e.message, false); }
+        finally { if (btn2) { btn2.textContent = '📨 Coller le mail'; btn2.disabled = false; } }
       }
 
-      var btnStyle = 'position:fixed;top:10px;z-index:2147483647;width:33px;height:33px;border-radius:50%;border:none;background:#1B4F9B;color:white;font-size:17px;cursor:pointer;box-shadow:0 2px 8px rgba(27,79,155,.45);';
-      var btn1 = document.createElement('button');
-      btn1.id = 'sf-copier-btn'; btn1.textContent = '📋'; btn1.title = 'Copier infos SF + ouvrir email';
-      btn1.style.cssText = btnStyle + 'left:calc(50% + 140px);';
-      btn1.onclick = copierInfos;
-      document.body.appendChild(btn1);
-
-      var btn2 = document.createElement('button');
-      btn2.id = 'sf-coller-btn'; btn2.textContent = '📨'; btn2.title = 'Coller le mail dans SF';
-      btn2.style.cssText = btnStyle + 'left:calc(50% + 180px);';
-      btn2.onclick = collerMail;
-      document.body.appendChild(btn2);
-
-      var toast = document.createElement('div');
-      toast.id = 'sf-copier-toast';
-      toast.style.cssText = 'position:fixed;top:50px;left:calc(50% + 140px);z-index:2147483647;padding:8px 14px;border-radius:8px;color:white;font-size:13px;font-family:sans-serif;max-width:260px;opacity:0;transition:opacity .3s;pointer-events:none;';
-      document.body.appendChild(toast);
+      document.getElementById('sf-copier-btn').addEventListener('click', copierInfos);
+      document.getElementById('sf-coller-btn').addEventListener('click', collerMail);
       return 'injected';
     },
     args: [LOGO_URL, FOOTER_HTML]

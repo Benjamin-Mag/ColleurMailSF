@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Coller Mail Salesforce",
-  "version": "1.0",
+  "version": "1.1",
   "description": "Colle automatiquement le mail généré dans le compositeur Salesforce",
   "permissions": ["activeTab", "scripting", "clipboardRead", "clipboardWrite", "tabs", "storage"],
   "host_permissions": ["*://*.salesforce.com/*", "*://*.force.com/*"],

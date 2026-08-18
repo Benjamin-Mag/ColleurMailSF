@@ -221,149 +221,104 @@ async function injecterBoutonSF(tab) {
         'z-index:2147483647;background:#fff;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);' +
         'font-family:Arial,Helvetica,sans-serif;overflow:hidden;user-select:none;';
 
-      var header = document.createElement('div');
-      header.style.cssText =
-        'display:flex;align-items:center;gap:6px;background:#1B4F9B;color:#fff;padding:8px 10px;' +
-        'cursor:move;font-size:13px;font-weight:600;';
-      header.innerHTML =
-        '<span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">✉ ColleurMailSF</span>' +
-        '<button id="sf-panel-min" title="Réduire" style="width:22px;height:22px;border:none;border-radius:5px;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:14px;line-height:1;">–</button>' +
-        '<button id="sf-panel-close" title="Fermer" style="width:22px;height:22px;border:none;border-radius:5px;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:14px;line-height:1;">×</button>';
-      panel.appendChild(header);
+      if (!document.getElementById('sf-bar-btn-style')) {
+        var barStyle = document.createElement('style');
+        barStyle.id = 'sf-bar-btn-style';
+        barStyle.textContent = '.sf-bar-btn{transition:filter .1s ease;} .sf-bar-btn:hover{filter:brightness(1.08);} .sf-bar-btn:active{filter:brightness(.9);}';
+        document.head.appendChild(barStyle);
+      }
 
-      var body = document.createElement('div');
-      body.id = 'sf-panel-body';
-      body.style.cssText = 'padding:10px;display:' + (saved.minimized ? 'none' : 'block') + ';';
-      body.innerHTML =
-        '<button id="sf-copier-btn" style="width:100%;padding:9px;margin-bottom:8px;background:#fff;color:#1B4F9B;border:2px solid #1B4F9B;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;user-select:none;">📋 Copier les infos client</button>' +
-        '<button id="sf-coller-btn" style="width:100%;padding:9px;background:#1B4F9B;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;user-select:none;">📨 Coller le mail</button>' +
-        '<p id="sf-panel-status" style="margin:8px 0 0;font-size:11px;color:#555;text-align:center;min-height:14px;word-break:break-word;"></p>';
-      panel.appendChild(body);
+      var bar = document.createElement('div');
+      bar.id = 'sf-coller-btn';
+      bar.className = 'sf-bar-btn';
+      bar.style.cssText =
+        'display:flex;align-items:center;gap:6px;background:#1B4F9B;color:#fff;padding:12px 10px;' +
+        'cursor:pointer;font-size:13px;font-weight:600;box-shadow:inset 0 -2px 0 rgba(0,0,0,.12);';
+      bar.innerHTML =
+        '<span id="sf-coller-label" style="flex:1;text-align:center;">📨 Coller le mail</span>' +
+        '<button id="sf-panel-close" title="Fermer" style="width:20px;height:20px;border:none;border-radius:5px;background:rgba(255,255,255,.2);color:#fff;cursor:pointer;font-size:13px;line-height:1;flex-shrink:0;">×</button>';
+      panel.appendChild(bar);
+
+      var status = document.createElement('p');
+      status.id = 'sf-panel-status';
+      status.style.cssText = 'display:none;margin:0;padding:6px 10px 8px;font-size:11px;color:#555;text-align:center;word-break:break-word;';
+      panel.appendChild(status);
 
       document.body.appendChild(panel);
 
-      // --- Drag (écouteurs globaux posés une seule fois, réutilisés à chaque réouverture) ---
-      var G = window.__sfMailPanelDrag || (window.__sfMailPanelDrag = { dragging: false });
+      // --- Drag (écouteurs globaux détachés puis réattachés à chaque réouverture,
+      // car recharger juste l'extension ne réinitialise pas le "window" de l'onglet
+      // déjà ouvert — une garde "attacher une seule fois" laisserait tourner les
+      // anciens écouteurs indéfiniment) ---
+      var G = window.__sfMailPanelDrag || (window.__sfMailPanelDrag = {});
       G.panel = panel; G.clamp = clamp;
 
-      header.addEventListener('mousedown', function(e) {
+      G.onClick = collerMail;
+      bar.addEventListener('mousedown', function(e) {
         if (e.target.closest('button')) return;
-        G.dragging = true;
-        G.dragStartX = e.clientX; G.dragStartY = e.clientY;
+        G.downX = e.clientX; G.downY = e.clientY;
         G.startLeft = panel.offsetLeft; G.startTop = panel.offsetTop;
+        G.dragging = false;
         e.preventDefault();
       });
 
-      if (!window.__sfMailPanelListenersAttached) {
-        window.__sfMailPanelListenersAttached = true;
-        document.addEventListener('mousemove', function(e) {
-          if (!G.dragging || !G.panel || !G.panel.isConnected) return;
-          var next = G.clamp(G.startTop + (e.clientY - G.dragStartY), G.startLeft + (e.clientX - G.dragStartX));
-          G.panel.style.top = next.top + 'px';
-          G.panel.style.left = next.left + 'px';
-        });
-        document.addEventListener('mouseup', function() {
-          if (!G.dragging || !G.panel) return;
-          G.dragging = false;
-          try {
-            var s = JSON.parse(localStorage.getItem('sfMailPanelState_v1')) || {};
-            s.top = G.panel.offsetTop; s.left = G.panel.offsetLeft;
-            localStorage.setItem('sfMailPanelState_v1', JSON.stringify(s));
-          } catch(e) {}
-        });
-        window.addEventListener('resize', function() {
-          if (!G.panel || !G.panel.isConnected) return;
-          var next = G.clamp(G.panel.offsetTop, G.panel.offsetLeft);
-          G.panel.style.top = next.top + 'px';
-          G.panel.style.left = next.left + 'px';
-        });
+      var H = window.__sfMailPanelHandlers;
+      if (H) {
+        document.removeEventListener('mousemove', H.mousemove);
+        document.removeEventListener('mouseup', H.mouseup);
+        window.removeEventListener('resize', H.resize);
+        document.removeEventListener('click', H.click);
       }
+      H = window.__sfMailPanelHandlers = {};
+      var DRAG_THRESHOLD = 4;
+      H.mousemove = function(e) {
+        if (!G.panel || !G.panel.isConnected || G.downX === undefined) return;
+        var dx = e.clientX - G.downX, dy = e.clientY - G.downY;
+        if (!G.dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+        G.dragging = true;
+        var next = G.clamp(G.startTop + dy, G.startLeft + dx);
+        G.panel.style.top = next.top + 'px';
+        G.panel.style.left = next.left + 'px';
+      };
+      H.mouseup = function() {
+        if (!G.panel || G.downX === undefined) return;
+        var wasDragging = G.dragging;
+        if (wasDragging) {
+          try {
+            var s = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+            s.top = G.panel.offsetTop; s.left = G.panel.offsetLeft;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+          } catch (e) {}
+        }
+        G.downX = undefined; G.dragging = false;
+        if (!wasDragging && G.onClick) G.onClick();
+      };
+      H.resize = function() {
+        if (!G.panel || !G.panel.isConnected) return;
+        var next = G.clamp(G.panel.offsetTop, G.panel.offsetLeft);
+        G.panel.style.top = next.top + 'px';
+        G.panel.style.left = next.left + 'px';
+      };
+      H.click = function(e) {
+        if (!G.panel || !G.panel.isConnected || G.panel.contains(e.target)) return;
+        var st = document.getElementById('sf-panel-status');
+        if (st) { st.style.display = 'none'; st.textContent = ''; }
+      };
+      document.addEventListener('mousemove', H.mousemove);
+      document.addEventListener('mouseup', H.mouseup);
+      window.addEventListener('resize', H.resize);
+      document.addEventListener('click', H.click);
 
-      // --- Minimize / Close ---
-      document.getElementById('sf-panel-min').addEventListener('click', function() {
-        var isHidden = body.style.display === 'none';
-        body.style.display = isHidden ? 'block' : 'none';
-        var s = loadState(); s.minimized = !isHidden; saveState(s);
-      });
-      document.getElementById('sf-panel-close').addEventListener('click', function() {
-        panel.remove();
-      });
+      document.getElementById('sf-panel-close').addEventListener('click', function() { panel.remove(); });
 
       function showStatus(msg, ok) {
         var st = document.getElementById('sf-panel-status');
-        if (st) { st.textContent = msg; st.style.color = ok ? '#1B4F9B' : '#c0392b'; }
-      }
-
-      async function copierInfos() {
-        var btn = document.getElementById('sf-copier-btn');
-        if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
-        try {
-          var all = dqAll('lightning-formatted-text[slot="primaryField"]');
-          var patEl = null;
-          for (var i = all.length - 1; i >= 0; i--) { var rb = all[i].getBoundingClientRect(); if (rb.width > 0 || rb.height > 0) { patEl = all[i]; break; } }
-          if (!patEl && all.length) patEl = all[all.length - 1];
-          var patFull = patEl ? (patEl.innerText || patEl.textContent || '').trim() : '';
-          var pm = patFull.match(/^(.*?)\s+\d{5}/);
-          var patient = pm ? pm[1].trim() : patFull;
-          var links = dqAll('a[href*="/lightning/r/Account/"]');
-          var partLink = null;
-          for (var j = links.length - 1; j >= 0; j--) { var rl = links[j].getBoundingClientRect(); if (rl.width > 0 || rl.height > 0) { partLink = links[j]; break; } }
-          if (!partLink && links.length) partLink = links[0];
-          var partenaire = partLink ? (partLink.innerText || partLink.textContent || '').trim() : '';
-          var adresse = '';
-          if (partLink) {
-            var rect = partLink.getBoundingClientRect();
-            var cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
-            var opts = { bubbles: true, composed: true, clientX: cx, clientY: cy };
-            partLink.dispatchEvent(new PointerEvent('pointerover', opts));
-            partLink.dispatchEvent(new MouseEvent('mouseover', opts));
-            partLink.dispatchEvent(new MouseEvent('mouseenter', opts));
-            var panelText = null;
-            for (var a = 0; a < 8; a++) {
-              await sleep(250);
-              var panel = document.querySelector('.forceHoverPanel[aria-hidden="false"]') || document.querySelector('[class*="forceHoverPanel"]:not([aria-hidden="true"])');
-              if (panel) { panelText = (panel.innerText || panel.textContent || '').trim(); break; }
-            }
-            partLink.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, composed: true }));
-            partLink.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, composed: true }));
-            if (panelText) {
-              var plines = panelText.split('\n').map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
-              var expIdx = plines.findIndex(function(l) { return /exp[eé]dition|shipping/i.test(l); });
-              if (expIdx >= 0) {
-                var al = [];
-                for (var k = expIdx + 1; k < plines.length && al.length < 3; k++) {
-                  if (/\d{5}/.test(plines[k]) || (al.length > 0 && plines[k].length > 2)) { al.push(plines[k]); if (/\d{5}/.test(plines[k])) break; }
-                  else if (al.length === 0) { al.push(plines[k]); }
-                  else break;
-                }
-                adresse = al.join(',\n');
-              }
-              if (!adresse) {
-                var cpIdx = plines.findIndex(function(l) { return /\d{5}/.test(l); });
-                if (cpIdx >= 0) { var pts = []; if (cpIdx > 0 && plines[cpIdx - 1].length > 2) pts.push(plines[cpIdx - 1]); pts.push(plines[cpIdx]); adresse = pts.join(',\n'); }
-              }
-            }
-          }
-          await navigator.clipboard.writeText(JSON.stringify({ patient: patient, partenaire: partenaire, adresse: adresse }));
-          showStatus('' + [patient, partenaire].filter(Boolean).join(' / '), true);
-          await sleep(300);
-          var icons = dqAll('lightning-icon[data-tab-value]');
-          for (var ei = 0; ei < icons.length; ei++) {
-            var icon = icons[ei];
-            if (icon.getAttribute('icon-name') !== 'utility:email') continue;
-            var r = icon.getBoundingClientRect();
-            if (r.width > 0 && r.height > 0) {
-              (icon.closest('button,a,[role="button"]') || icon.parentElement || icon).dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
-              break;
-            }
-          }
-        } catch(e) { showStatus('Erreur : ' + e.message, false); }
-        finally { if (btn) { btn.textContent = '📋 Copier les infos client'; btn.disabled = false; } }
+        if (st) { st.textContent = msg; st.style.color = ok ? '#1B4F9B' : '#c0392b'; st.style.display = msg ? 'block' : 'none'; }
       }
 
       async function collerMail() {
-        var btn2 = document.getElementById('sf-coller-btn');
-        if (btn2) { btn2.textContent = '⏳'; btn2.disabled = true; }
+        var label = document.getElementById('sf-coller-label');
+        if (label) { label.textContent = '⏳'; }
         try {
           var text = await navigator.clipboard.readText();
           if (!text) { showStatus('Presse-papier vide', false); return; }
@@ -382,11 +337,9 @@ async function injecterBoutonSF(tab) {
           ed.dispatchEvent(new Event('input', { bubbles: true }));
           showStatus('Mail collé !', true);
         } catch(e) { showStatus('Erreur : ' + e.message, false); }
-        finally { if (btn2) { btn2.textContent = '📨 Coller le mail'; btn2.disabled = false; } }
+        finally { if (label) { label.textContent = '📨 Coller le mail'; } }
       }
 
-      document.getElementById('sf-copier-btn').addEventListener('click', copierInfos);
-      document.getElementById('sf-coller-btn').addEventListener('click', collerMail);
       return 'injected';
     },
     args: [LOGO_URL, FOOTER_HTML]
